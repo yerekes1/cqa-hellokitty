@@ -45,6 +45,9 @@ def init_db():
         if not c.execute("SELECT 1 FROM checklists").fetchone():
             c.execute("INSERT INTO checklists(body,created) VALUES(?,?)",
                       (json.dumps(grader.load_checklist(), ensure_ascii=False), time.time()))
+        elif c.execute("SELECT COUNT(*) FROM checklists").fetchone()[0] == 1:
+            # пока пользователь не сохранял свои версии, база следует за исходным чек-листом
+            c.execute("UPDATE checklists SET body=?", (json.dumps(grader.load_checklist(), ensure_ascii=False),))
         dev = ROOT / "data" / "dev.json"
         if dev.exists() and not c.execute("SELECT 1 FROM conversations").fetchone():
             store_records(c, json.loads(dev.read_text(encoding="utf-8"))["data"]["records"], "DEV")
@@ -58,18 +61,17 @@ def store_records(c, records, dataset):
 
 def import_cli_runs():
     """Оценки, сделанные через командную строку, тоже видны в интерфейсе."""
-    runs = ROOT / "runs"
-    if not runs.exists():
-        return
     with db() as c:
         cl_id = c.execute("SELECT MIN(id) FROM checklists").fetchone()[0]
-        for f in sorted(runs.glob("state_*.json")):
-            for r in json.loads(f.read_text(encoding="utf-8")):
+        for name in ("dev", "prod"):  # экспериментальные прогоны в интерфейс не попадают
+            state = grader.load_state(ROOT / "results" / name / "results.json")
+            for r in state.values():
                 log = (r.get("_meta") or {}).get("run_log")
-                if log and r["status"] == "ok":
+                path = ROOT / "runs" / log if log else None
+                if log and r["status"] == "ok" and path.exists():
                     c.execute("INSERT OR IGNORE INTO evaluations(cid,checklist_id,status,body,created,run_log) "
                               "VALUES(?,?,?,?,?,?)", (r["conversation_id"], cl_id, r["status"],
-                                                      json.dumps(r, ensure_ascii=False), time.time(), log))
+                                                      json.dumps(r, ensure_ascii=False), path.stat().st_mtime, log))
 
 
 def get_checklist(c, cid=None):
@@ -123,7 +125,7 @@ def latest_eval(c, cid, checklist_id=None):
     if checklist_id:
         q += " AND checklist_id=?"
         p.append(checklist_id)
-    return c.execute(q + " ORDER BY id DESC LIMIT 1", p).fetchone()
+    return c.execute(q + " ORDER BY created DESC, id DESC LIMIT 1", p).fetchone()
 
 
 # ---------- Чек-лист ----------
