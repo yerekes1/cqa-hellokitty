@@ -129,6 +129,11 @@ def guard_conflicts(parsed, checklist, record, facts):
     """Сверка ответа с фактами. Расхождение даёт один повторный запрос, а не правку значения."""
     out = []
     for c in checklist["criteria"]:
+        if "disclosure" in c.get("guards", []):
+            ident = parsed["criteria"].get("identification", {}).get("value")
+            if ident == "no" and parsed["criteria"][c["id"]]["value"] == "no":
+                out.append(f"{c['id']}: identification = no. Если оператор сообщил сведения о счёте клиента без "
+                           "подтверждения личности, это раскрытие конфиденциальной информации. Проверь оценку.")
         if "end_event" not in c.get("guards", []):
             continue
         last = facts["last_operator"]

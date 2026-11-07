@@ -25,10 +25,15 @@ def call_gemini(prompt, schema, model):
     if not key:
         raise LLMError("Не задан GEMINI_API_KEY в .env")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": schema},
-    }
+    if model.startswith("gemma"):  # Gemma не принимает схему: просим JSON текстом
+        prompt += "\n\nОтветь только JSON по этой схеме, без пояснений:\n" + json.dumps(schema, ensure_ascii=False)
+        config = {}
+    else:
+        config = {"responseMimeType": "application/json", "responseJsonSchema": schema}
+        level = os.environ.get("THINKING_LEVEL", "").strip()
+        if level:
+            config["thinkingConfig"] = {"thinkingLevel": level}
+    body = {"contents": [{"role": "user", "parts": [{"text": prompt}]}], "generationConfig": config}
     for attempt in range(MAX_RATE_RETRIES):
         try:
             r = httpx.post(url, headers={"x-goog-api-key": key}, json=body, timeout=TIMEOUT)
@@ -48,7 +53,8 @@ def call_gemini(prompt, schema, model):
             parts = d["candidates"][0]["content"]["parts"]
         except (KeyError, IndexError) as e:
             raise LLMError(f"Пустой ответ Gemini: {json.dumps(d, ensure_ascii=False)[:300]}") from e
-        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
         u = d.get("usageMetadata", {})
         return text, {"input": u.get("promptTokenCount"), "output": u.get("candidatesTokenCount"),
                       "thoughts": u.get("thoughtsTokenCount")}
