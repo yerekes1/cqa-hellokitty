@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+data/
+runs/
+*.db
+.arena/
+ANALYSIS.md
+compare.py
+models.tmp
+r.tmp
