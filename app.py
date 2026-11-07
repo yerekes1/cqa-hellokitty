@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
@@ -191,7 +192,8 @@ def import_records(b: ImportIn):
         if not base:
             raise HTTPException(400, "В .env не задан ORGANIZER_API_URL")
         try:
-            r = httpx.get(base, params={"group_id": b.group_id}, timeout=120)
+            sep = "&" if "?" in base else "?"  # params= в httpx затёр бы подпись в адресе
+            r = httpx.get(f"{base}{sep}group_id={quote(b.group_id)}", timeout=120)
             d = r.json()
         except (httpx.HTTPError, ValueError) as e:
             raise HTTPException(502, f"API организаторов: {e}")

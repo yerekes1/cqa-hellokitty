@@ -11,6 +11,7 @@ import pathlib
 import subprocess
 import sys
 import time
+from urllib.parse import quote
 
 import httpx
 from dotenv import load_dotenv
@@ -28,8 +29,10 @@ def fetch(group, path, ids=None):
     url = os.environ.get("ORGANIZER_API_URL", "")
     if not url:
         sys.exit("В .env не задан ORGANIZER_API_URL")
-    r = httpx.get(url, params={"group_id": group}, timeout=TIMEOUT_API)
-    r.raise_for_status()
+    sep = "&" if "?" in url else "?"  # params= в httpx затёр бы подпись в адресе
+    r = httpx.get(f"{url}{sep}group_id={quote(group)}", timeout=TIMEOUT_API)
+    if r.status_code != 200:
+        sys.exit(f"API организаторов ответил {r.status_code}. Проверьте group_id: {group}")
     d = r.json()
     if not d.get("isSuccess"):
         sys.exit(f"API организаторов вернул ошибку: {d.get('error')}")
@@ -56,9 +59,15 @@ def push(out, expected):
     rel = pathlib.Path(out).resolve().relative_to(ROOT.resolve()).as_posix()
     subprocess.run(["git", "add", rel], cwd=ROOT, check=True)
     msg = "Add control set results\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\n"
-    subprocess.run(["git", "commit", "-m", msg], cwd=ROOT, check=True)
-    subprocess.run(["git", "push"], cwd=ROOT, check=True)
+    subprocess.run(["git", "commit", "-m", msg], cwd=ROOT)  # при повторном запуске коммитить может быть нечего
+    p = subprocess.run(["git", "push"], cwd=ROOT)
+    if p.returncode != 0:
+        subprocess.run(["git", "pull", "--rebase"], cwd=ROOT, check=True)
+        subprocess.run(["git", "push"], cwd=ROOT, check=True)
     remote = subprocess.run(["git", "remote", "get-url", "origin"], cwd=ROOT, capture_output=True, text=True).stdout
+    if "github.com/" not in remote:
+        print("Отправлено, удалённый репозиторий не GitHub: проверьте файл вручную.")
+        return
     repo = remote.strip().removesuffix(".git").split("github.com/")[1]
     branch = subprocess.run(["git", "branch", "--show-current"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
     raw = f"https://raw.githubusercontent.com/{repo}/{branch}/{rel}"
@@ -85,8 +94,13 @@ def main():
     ap.add_argument("--out", default="results/prod/results.json")
     ap.add_argument("--expect", type=int, default=10, help="сколько записей должно быть")
     ap.add_argument("--only-ids", help="репетиция: взять только эти ID")
-    ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--workers", type=int, default=2)
+    # Запас Gemini 3 Flash мал (20 запросов в день), поэтому модель включается только здесь.
+    # Если её лимит кончится, оценка продолжится на резервной модели, в model.name попадут обе.
+    ap.add_argument("--model", default="gemini-3-flash-preview")
+    ap.add_argument("--fallback", default="gemini-3.5-flash-lite")
     a = ap.parse_args()
+    os.environ.update(MODEL=a.model, FALLBACK_MODELS=a.fallback)
     start = time.time()
 
     if a.push_only:
