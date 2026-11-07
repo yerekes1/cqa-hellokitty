@@ -63,7 +63,7 @@ def call_gemini(prompt, schema, model):
 
 def call_ollama(prompt, schema, model):
     url = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/") + "/api/chat"
-    body = {"model": model, "stream": False, "format": schema, "think": False,
+    body = {"model": model, "stream": False, "format": schema, "think": os.environ.get("OLLAMA_THINK", "0") == "1",
             "options": {"temperature": 0, "num_ctx": 16384},
             "messages": [{"role": "user", "content": prompt}]}
     try:

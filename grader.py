@@ -65,7 +65,7 @@ def build_schema(checklist):
             "type": "object",
             "properties": {
                 "rationale": {"type": "string"},
-                "evidence_turns": {"type": "array", "items": {"type": "integer"}},
+                "evidence_turns": {"type": "array", "items": {"type": "integer"}, "minItems": 1, "maxItems": 8},
                 "value": {"type": "string", "enum": allowed_tokens(c)},
                 "confidence": {"type": "string", "enum": ["high", "low"]},
             },
