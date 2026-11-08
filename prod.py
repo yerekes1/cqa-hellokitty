@@ -98,7 +98,7 @@ def main():
     # Запас Gemini 3 Flash мал (20 запросов в день), поэтому модель включается только здесь.
     # Если её лимит кончится, оценка продолжится на резервной модели, в model.name попадут обе.
     ap.add_argument("--model", default="gemini-3-flash-preview")
-    ap.add_argument("--fallback", default="gemini-3.5-flash-lite")
+    ap.add_argument("--fallback", default="gemini-3.1-flash-lite,gemma-4-31b-it")
     a = ap.parse_args()
     os.environ.update(MODEL=a.model, FALLBACK_MODELS=a.fallback)
     start = time.time()
