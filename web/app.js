@@ -51,7 +51,19 @@ async function viewList() {
       `<tr><td colspan="7" class="muted">Под этот фильтр диалогов нет.</td></tr>`;
     document.getElementById("count").textContent = `${shown.length} из ${rows.length}`;
   };
-  $view.innerHTML = `<h1>Диалоги</h1><div class="card"><div class="row">
+  const ok = rows.filter(r => r.status === "ok"), avg = a => a.length ? a.reduce((s, r) => s + r.score, 0) / a.length : null;
+  const langs = ["RU", "KZ", "EN"].map(l => [l, ok.filter(r => r.language === l && r.channel !== "voice call")])
+    .concat([["Звонки", ok.filter(r => r.channel === "voice call")]]).filter(([, a]) => a.length);
+  $view.innerHTML = `<h1>Пульт качества</h1>
+    <div class="kpis">
+      <div class="kpi ok"><span class="small muted">Средний балл</span><b>${scoreText(avg(ok))}</b><span class="small muted">из 100</span></div>
+      <div class="kpi"><span class="small muted">Оценено</span><b>${ok.length}<span class="muted" style="font-size:18px"> / ${rows.length}</span></b><span class="small muted">диалогов</span></div>
+      <div class="kpi hot"><span class="small muted">Грубые ошибки</span><b>${ok.filter(r => r.flag).length}</b><span class="small muted">итог не обнуляют</span></div>
+      <div class="kpi warn"><span class="small muted">Проверить человеку</span><b>${ok.filter(r => r.review).length}</b><span class="small muted">спорные оценки</span></div>
+      <div class="kpi"><span class="small muted">Апелляции</span><b>${rows.reduce((s, r) => s + (r.open_appeals || 0), 0)}</b><span class="small muted">ждут решения</span></div>
+    </div>
+    ${langs.length ? `<div class="card"><h2>Средний балл по языкам и каналам</h2><div class="langs">${langs.map(([l, a]) => `<div class="lang"><span>${esc(l)} <span class="muted small">· ${a.length}</span></span><div class="bar"><i style="width:${avg(a)}%"></i></div><b class="num">${scoreText(avg(a))}</b></div>`).join("")}</div></div>` : ""}
+    <div class="card"><div class="row">
       <input id="q" placeholder="Поиск по ID" aria-label="Поиск по ID" value="${esc(listFilter.q)}">
       <select id="lang" aria-label="Язык"><option value="">Все языки</option><option>RU</option><option>KZ</option><option>EN</option></select>
       <select id="only" aria-label="Фильтр"><option value="">Все</option><option value="flag">Грубые ошибки</option><option value="review">Проверить человеку</option><option value="appeal">С апелляцией</option><option value="none">Не оценённые</option><option value="error">С ошибкой</option></select>
@@ -111,17 +123,22 @@ function renderEval(ev) {
     const was = c.original_value !== c.value;
     const app = ev.appeals.filter(a => a.criterion_id === c.id);
     const turns = c.evidence_turns.map(n => `<button class="ev" data-turn="${n}">[${n}]</button>`).join("");
-    return `<div class="crit"><div class="row spread"><strong>${esc(c.title)}</strong><span class="row">
+    const tone = c.type === "flag" ? (c.value ? "c-bad" : "c-good") : c.value === null ? "c-na"
+      : c.points >= c.effective_weight ? "c-good" : c.points === 0 ? "c-bad" : "c-warn";
+    const bar = c.type !== "flag" && c.value !== null && c.effective_weight
+      ? `<div class="bar"><i style="width:${Math.round(c.points / c.effective_weight * 100)}%"></i></div>` : "";
+    return `<div class="crit ${tone}"><div class="row spread"><strong>${esc(c.title)}</strong><span class="row">
         ${was ? `<span class="was small">${esc(fmtValue(c, c.original_value))}</span>` : ""}${valueTag(c, c.value)}
         ${c.type !== "flag" ? `<span class="small muted">${c.value === null ? "вес перераспределён" : `${c.points.toFixed(2)} из ${c.effective_weight.toFixed(2)}`}</span>` : ""}
         ${c.low_confidence ? `<span class="tag warn">Низкая уверенность</span>` : ""}</span></div>
-      <div class="small muted">Вес ${c.weight}</div><div>${esc(c.rationale)}</div>
+      <div class="small muted">Вес ${c.weight}</div>${bar}<div style="margin-top:8px">${esc(c.rationale)}</div>
       <div class="row" style="margin-top:6px"><span>${turns}</span><button class="ghost small" data-appeal="${esc(c.id)}">Оспорить</button></div>
       ${app.map(a => `<div class="small" style="margin-top:6px"><span class="tag ${a.status === "open" ? "warn" : "good"}">${a.status === "open" ? "На рассмотрении" : a.decision === "change" ? "Оценка изменена" : "Оценка подтверждена"}</span> ${esc(a.comment)}${a.reason ? `<br><span class="muted">Решение: ${esc(a.reason)}</span>` : ""}</div>`).join("")}
       <div id="ap-${esc(c.id)}"></div></div>`;
   }).join("");
   return `<div class="card">${ev.critical_flag ? `<div class="banner">Выявлена грубая ошибка. Итог она не обнуляет, отметка идёт отдельно.</div>` : ""}
-      <div class="row spread"><div><div class="small muted">${changed ? "Финальный итог" : "Итог"}</div><div class="score">${scoreText(ev.final_score)}</div></div>
+      <div class="row spread"><div class="row" style="gap:16px"><div class="ring" style="--p:${ev.final_score ?? 0};--c:${ev.final_score >= 80 ? "var(--teal)" : ev.final_score >= 50 ? "var(--warn)" : "var(--bad)"}"><div><div><b>${scoreText(ev.final_score)}</b><span>из 100</span></div></div></div>
+      <div class="small muted">${changed ? "Финальный итог<br>после апелляции" : "Итоговая<br>оценка"}</div></div>
       ${changed ? `<div><div class="small muted">Исходная оценка</div><div class="was" style="font-size:20px">${scoreText(ev.original_score)}</div></div>` : ""}
       <div class="small muted">Чек-лист ${esc(ev.checklist_version)}<br>Модель ${esc(ev.meta.model || "")}<br>${ev.meta.run_log ? `<a href="#" data-log="${esc(ev.meta.run_log)}">Журнал запуска</a>` : ""}</div></div>
       ${secs ? `<table style="margin-top:10px"><tbody>${secs}</tbody></table>` : ""}
